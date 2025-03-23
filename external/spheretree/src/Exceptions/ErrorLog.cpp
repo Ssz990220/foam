@@ -49,7 +49,7 @@ char errorLogDir[1024] = "./Errors";
 void writeErrorLog(const char *cond, const char *file, int line, const char *msg, ...){
   char fileName[1024] = "";
 
-  long currentTime = time(NULL); 
+  time_t currentTime = time(NULL); 
   char *now = asctime(localtime(&currentTime));
   if (now)
     sprintf(fileName, "%s/%.6s %.4s.txt",errorLogDir, &now[4], &now[20]); 

@@ -33,7 +33,7 @@ def main(
         volume_heuristic_ratio: float = 0.7,
         manifold_leaves: int = 1000,
         simplification_ratio: float = 0.2,
-        threads: int = 16,
+        threads: int = 1,
         shrinkage: float = 1.,
         **kwargs: float
     ):
