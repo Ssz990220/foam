@@ -7,7 +7,7 @@ from trimesh.exchange.obj import export_obj
 from trimesh.base import Trimesh
 
 from foam.model import *
-from foam.utility import *
+from foam.utility import export_obj_with_normals, tempmesh, load_mesh_file
 
 
 def _find_binary(name: str) -> Path:
@@ -100,7 +100,7 @@ def compute_spheres_helper(mesh: Trimesh, command: list[str],method) -> list[Sph
     # print("flag 5")
     _ = mesh.vertex_normals    # Need to compute vertex normals
     with tempmesh() as (input_mesh, input_path):
-        input_mesh.write(export_obj(mesh))
+        input_mesh.write(export_obj_with_normals(mesh))
         input_mesh.flush()
 
         output_file = input_path.parent / (input_path.stem + f'-{method}.sph')

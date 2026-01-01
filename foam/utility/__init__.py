@@ -31,6 +31,33 @@ def smooth_mesh(mesh: Trimesh):
     filter_humphrey(mesh, iterations = 100)
 
 
+def export_obj_with_normals(mesh: Trimesh) -> str:
+    """Export mesh to OBJ format with vertex normals in face definitions.
+
+    The spheretree library's OBJ loader requires faces in v//vn format,
+    but trimesh's export_obj only outputs v v v format.
+    """
+    lines = ["# OBJ with vertex normals for spheretree"]
+
+    # Ensure vertex normals are computed
+    _ = mesh.vertex_normals
+
+    # Write vertices
+    for v in mesh.vertices:
+        lines.append(f"v {v[0]:.8f} {v[1]:.8f} {v[2]:.8f}")
+
+    # Write vertex normals
+    for vn in mesh.vertex_normals:
+        lines.append(f"vn {vn[0]:.8f} {vn[1]:.8f} {vn[2]:.8f}")
+
+    # Write faces with v//vn format (OBJ indices are 1-based)
+    for f in mesh.faces:
+        v1, v2, v3 = f[0] + 1, f[1] + 1, f[2] + 1
+        lines.append(f"f {v1}//{v1} {v2}//{v2} {v3}//{v3}")
+
+    return "\n".join(lines)
+
+
 @contextmanager
 def tempmesh():
     f = NamedTemporaryFile('w', suffix = f'.obj')
