@@ -1,0 +1,107 @@
+"""
+FOAM - Spherical Approximation for URDFs
+
+Builds the FOAM sphere-tree library and executables using CMake.
+"""
+
+load("@rules_foreign_cc//foreign_cc:defs.bzl", "cmake")
+
+filegroup(
+    name = "all_srcs",
+    srcs = glob(
+        ["**"],
+        exclude = [
+            "build/**",
+            "BUILD.bazel",
+            ".git/**",
+            "**/*.pyc",
+            "**/__pycache__/**",
+        ],
+    ),
+    visibility = ["//visibility:public"],
+)
+
+# List of executables built by the FOAM project
+FOAM_EXECUTABLES = [
+    "makeTreeGrid",
+    "makeTreeHubbard",
+    "makeTreeMedial",
+    "makeTreeOctree",
+    "makeTreeSpawn",
+    "manifold",
+    "manifold_old",
+    "simplify",
+    "simplify_old",
+]
+
+cmake(
+    name = "foam",
+    build_args = [
+        "--",  # Pass remaining args to the native build tool
+        "-j8",
+    ],
+    cache_entries = {
+        "CMAKE_BUILD_TYPE": "Release",
+        "FORCE_COLORED_OUTPUT": "OFF",
+    },
+    generate_args = ["-G", "Unix Makefiles"],
+    lib_source = ":all_srcs",
+    # The FOAM CMakeLists.txt doesn't have install() commands, so we need
+    # to use postfix_script to copy the built binaries to the expected location
+    postfix_script = """
+        # Copy executables from build directory to installdir/bin
+        mkdir -p $INSTALLDIR/bin
+        cp -v external/spheretree/makeTreeGrid $INSTALLDIR/bin/ || true
+        cp -v external/spheretree/makeTreeHubbard $INSTALLDIR/bin/ || true
+        cp -v external/spheretree/makeTreeMedial $INSTALLDIR/bin/ || true
+        cp -v external/spheretree/makeTreeOctree $INSTALLDIR/bin/ || true
+        cp -v external/spheretree/makeTreeSpawn $INSTALLDIR/bin/ || true
+        cp -v external/manifold $INSTALLDIR/bin/ || true
+        cp -v external/manifold_old $INSTALLDIR/bin/ || true
+        cp -v external/simplify $INSTALLDIR/bin/ || true
+        cp -v external/simplify_old $INSTALLDIR/bin/ || true
+        # Copy static library
+        mkdir -p $INSTALLDIR/lib
+        cp -v external/spheretree/libspheretree.a $INSTALLDIR/lib/ || true
+    """,
+    out_binaries = FOAM_EXECUTABLES,
+    out_static_libs = ["libspheretree.a"],
+    targets = [
+        "makeTreeGrid",
+        "makeTreeHubbard",
+        "makeTreeMedial",
+        "makeTreeOctree",
+        "makeTreeSpawn",
+        "manifold",
+        "manifold_old",
+        "simplify",
+        "simplify_old",
+    ],
+    visibility = ["//visibility:public"],
+)
+
+# Filegroup for the built binaries (for copying/deployment)
+filegroup(
+    name = "foam_binaries",
+    srcs = [":foam"],
+    visibility = ["//visibility:public"],
+)
+
+# Install binaries to foam/external/ for Python module
+sh_binary(
+    name = "install",
+    srcs = ["foam_install.sh"],
+    data = [":foam"],
+    visibility = ["//visibility:public"],
+)
+
+# Full setup: build + install binaries + pip install
+sh_binary(
+    name = "setup",
+    srcs = ["foam_setup.sh"],
+    data = [
+        ":foam",
+        ":all_srcs",
+    ],
+    visibility = ["//visibility:public"],
+)

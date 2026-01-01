@@ -1,6 +1,6 @@
 from sys import stdout
 from pathlib import Path
-from os import remove as remove_file
+from os import remove as remove_file, environ
 from subprocess import run, DEVNULL
 
 from trimesh.exchange.obj import export_obj
@@ -9,16 +9,64 @@ from trimesh.base import Trimesh
 from foam.model import *
 from foam.utility import *
 
+
+def _find_binary(name: str) -> Path:
+    """Find a binary in multiple possible locations.
+
+    Search order:
+    1. FOAM_BIN_DIR environment variable
+    2. Bazel runfiles (if running under bazel)
+    3. Local foam/external directory
+    4. Bazel output directory relative to workspace root
+    """
+    # Check environment variable first
+    if "FOAM_BIN_DIR" in environ:
+        path = Path(environ["FOAM_BIN_DIR"]) / name
+        if path.exists():
+            return path
+
+    # Check local directory (cmake build output)
+    local_dir = Path(__file__).parent
+    local_path = local_dir / name
+    if local_path.exists():
+        return local_path
+
+    # Check bazel-bin relative to workspace root
+    # Walk up from this file to find workspace root (contains MODULE.bazel or WORKSPACE)
+    current = local_dir
+    for _ in range(10):  # Limit search depth
+        bazel_bin = current / "bazel-bin" / "thirdparty" / "foam" / "foam" / "bin" / name
+        if bazel_bin.exists():
+            return bazel_bin
+        # Also check if we're at workspace root
+        if (current / "MODULE.bazel").exists() or (current / "WORKSPACE").exists():
+            bazel_bin = current / "bazel-bin" / "thirdparty" / "foam" / "foam" / "bin" / name
+            if bazel_bin.exists():
+                return bazel_bin
+            break
+        current = current.parent
+
+    # Check bazel runfiles (when running as bazel target)
+    runfiles_dir = environ.get("RUNFILES_DIR", "")
+    if runfiles_dir:
+        runfiles_path = Path(runfiles_dir) / "foam" / "bin" / name
+        if runfiles_path.exists():
+            return runfiles_path
+
+    # Fallback to local path (will fail with clear error if not found)
+    return local_path
+
+
 EXTERNAL_BINARY_DIR = Path(__file__).parent
-MAKE_TREE_MEDIAL_PATH = EXTERNAL_BINARY_DIR / "makeTreeMedial"
-MAKE_TREE_GRID_PATH = EXTERNAL_BINARY_DIR / "makeTreeGrid"
-MAKE_TREE_HUBBARD_PATH = EXTERNAL_BINARY_DIR / "makeTreeHubbard"
-MAKE_TREE_OCTREE_PATH = EXTERNAL_BINARY_DIR / "makeTreeOctree"
-MAKE_TREE_SPAWN_PATH = EXTERNAL_BINARY_DIR / "makeTreeSpawn"
-MANIFOLD_PATH = EXTERNAL_BINARY_DIR / "manifold"
-SIMPLIFY_PATH = EXTERNAL_BINARY_DIR / "simplify"
-MANIFOLD_OLD_PATH = EXTERNAL_BINARY_DIR / "manifold_old"
-SIMPLIFY_OLD_PATH = EXTERNAL_BINARY_DIR / "simplify_old"
+MAKE_TREE_MEDIAL_PATH = _find_binary("makeTreeMedial")
+MAKE_TREE_GRID_PATH = _find_binary("makeTreeGrid")
+MAKE_TREE_HUBBARD_PATH = _find_binary("makeTreeHubbard")
+MAKE_TREE_OCTREE_PATH = _find_binary("makeTreeOctree")
+MAKE_TREE_SPAWN_PATH = _find_binary("makeTreeSpawn")
+MANIFOLD_PATH = _find_binary("manifold")
+SIMPLIFY_PATH = _find_binary("simplify")
+MANIFOLD_OLD_PATH = _find_binary("manifold_old")
+SIMPLIFY_OLD_PATH = _find_binary("simplify_old")
 
 
 def read_spherization_file(filename: Path, offset: NDArray) -> list[Spherization]:
