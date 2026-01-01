@@ -135,25 +135,27 @@ class SpherizationDatabase:
 
     def __init__(self, path: Path):
         self.path = path
-
-        # TODO: Fix database, currently issues with cache clearing
-        # if path.exists():
-        #     with open(path, 'r') as json_file:
-        #         self.db = jsload(json_file, cls = SphereDecoder)
-        #         self.db = {
-        #             mk: {
-        #                 int(bk): {
-        #                     int(dk): dv
-        #                     for dk, dv in bv.items()
-        #                     }
-        #                 for bk, bv in mv.items()
-        #                 }
-        #             for mk,
-        #             mv in self.db.items()
-        #             }
-
-        # else:
         self.db = {}
+
+        # Load existing cache if present
+        if path.exists():
+            try:
+                with open(path, 'r') as json_file:
+                    raw_db = jsload(json_file, cls=SphereDecoder)
+                    # Convert string keys to integers for branch and depth levels
+                    self.db = {
+                        mesh_name: {
+                            int(branch_key): {
+                                int(depth_key): spherization
+                                for depth_key, spherization in branch_data.items()
+                            }
+                            for branch_key, branch_data in mesh_data.items()
+                        }
+                        for mesh_name, mesh_data in raw_db.items()
+                    }
+            except Exception as e:
+                print(f"Warning: Failed to load FOAM cache: {e}")
+                self.db = {}
 
     def __del__(self):
         with open(self.path, 'w') as f:
