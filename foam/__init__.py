@@ -3,6 +3,7 @@ from json import load as jsload
 from json import dumps as jsdumps
 from concurrent.futures import ThreadPoolExecutor, Future
 from concurrent.futures import wait as future_wait
+from threading import Lock
 from trimesh.primitives import Sphere as TMSphere
 from trimesh.decomposition import convex_decomposition
 from trimesh.util import concatenate
@@ -15,7 +16,7 @@ from .model import *
 from trimesh.transformations import compose_matrix, euler_matrix, translation_matrix, quaternion_matrix
 
 
-def smooth_manifold(mesh: Trimesh, manifold_leaves: int = 1000, ratio = 0.2) -> Trimesh:
+def smooth_manifold(mesh: Trimesh, manifold_leaves: int = 1000, ratio=0.2) -> Trimesh:
     mesh = manifold(mesh, manifold_leaves)
     mesh = simplify_manifold(mesh, ratio)
     smooth_mesh(mesh)
@@ -32,7 +33,6 @@ def spherize_mesh(
     spherization_kwargs: dict[str, Any] = {},
     process_kwargs: dict[str, Any] = {},
 ) -> list[Spherization]:
-
     print(f"Spherizing {name}")
     if isinstance(mesh, Path):
         print(f"Processing {mesh}")
@@ -68,14 +68,14 @@ def spherize_mesh(
     offset = (high_bounds + low_bounds) / 2
     loaded_mesh.apply_transform(translation_matrix(-offset))
 
-    method = spherization_kwargs['method']
+    method = spherization_kwargs["method"]
 
     if not check_valid_for_spherization(method, loaded_mesh):
         loaded_mesh = smooth_manifold(loaded_mesh, **process_kwargs)
 
     if not check_valid_for_spherization(method, loaded_mesh):
         decomposition = convex_decomposition(loaded_mesh)
-        loaded_mesh = concatenate([Trimesh(vertices=d['vertices'], faces=d['faces']) for d in decomposition])
+        loaded_mesh = concatenate([Trimesh(vertices=d["vertices"], faces=d["faces"]) for d in decomposition])
 
     try:
         spheres = compute_spheres(loaded_mesh, **spherization_kwargs)
@@ -95,21 +95,20 @@ def spherize_mesh(
 
 
 class ParallelSpherizer:
-
     def __init__(self, threads: int = 4):
-        self.executor = ThreadPoolExecutor(max_workers = threads)
+        self.executor = ThreadPoolExecutor(max_workers=threads)
         self.waiting = {}
 
     def spherize_mesh(
-            self,
-            name: str,
-            mesh: Trimesh | Path,
-            scale: NDArray | None = None,
-            position: NDArray | None = None,
-            orientation: NDArray | None = None,
-            spherization_kwargs: dict[str, Any] = {},
-            process_kwargs: dict[str, Any] = {}
-        ) -> Future[list[Spherization]]:
+        self,
+        name: str,
+        mesh: Trimesh | Path,
+        scale: NDArray | None = None,
+        position: NDArray | None = None,
+        orientation: NDArray | None = None,
+        spherization_kwargs: dict[str, Any] = {},
+        process_kwargs: dict[str, Any] = {},
+    ) -> Future[list[Spherization]]:
         future = self.executor.submit(
             spherize_mesh,
             name,
@@ -132,15 +131,15 @@ class ParallelSpherizer:
 
 
 class SpherizationDatabase:
-
     def __init__(self, path: Path):
         self.path = path
         self.db = {}
+        self._lock = Lock()  # Thread-safe access to db
 
         # Load existing cache if present
         if path.exists():
             try:
-                with open(path, 'r') as json_file:
+                with open(path, "r") as json_file:
                     raw_db = jsload(json_file, cls=SphereDecoder)
                     # Convert string keys to integers for branch and depth levels
                     self.db = {
@@ -158,89 +157,91 @@ class SpherizationDatabase:
                 self.db = {}
 
     def __del__(self):
-        with open(self.path, 'w') as f:
-            f.write(jsdumps(self.db, indent = 4, cls = SphereEncoder))
+        with open(self.path, "w") as f:
+            f.write(jsdumps(self.db, indent=4, cls=SphereEncoder))
 
     def add(self, mesh: str, branch: int, depth: int, spherization: Spherization):
-        if mesh not in self.db:
-            self.db[mesh] = {}
+        with self._lock:
+            if mesh not in self.db:
+                self.db[mesh] = {}
 
-        if branch not in self.db[mesh]:
-            self.db[mesh][branch] = {}
+            if branch not in self.db[mesh]:
+                self.db[mesh][branch] = {}
 
-        if depth not in self.db[mesh][branch]:
-            self.db[mesh][branch][depth] = spherization
-
-        else:
-            if spherization < self.db[mesh][branch][depth]:
+            if depth not in self.db[mesh][branch]:
                 self.db[mesh][branch][depth] = spherization
 
+            else:
+                if spherization < self.db[mesh][branch][depth]:
+                    self.db[mesh][branch][depth] = spherization
+
     def get(self, mesh: str, branch: int, depth: int) -> Spherization:
-        return self.db[mesh][branch][depth]
+        with self._lock:
+            return self.db[mesh][branch][depth]
 
     def exists(self, mesh: str, branch: int, depth: int) -> bool:
-        if mesh in self.db:
-            if branch in self.db[mesh]:
-                if depth in self.db[mesh][branch]:
-                    return True
+        with self._lock:
+            if mesh in self.db:
+                if branch in self.db[mesh]:
+                    if depth in self.db[mesh][branch]:
+                        return True
 
-        return False
+            return False
 
 
 class SpherizationHelper:
-
     def __init__(self, database: Path, threads: int = 8):
         self.ps = ParallelSpherizer(threads)
         self.db = SpherizationDatabase(database)
 
     def spherize_mesh(
-            self,
-            name: str,
-            mesh: Trimesh | Path,
-            scale: NDArray | None = None,
-            position: NDArray | None = None,
-            method: str = "medial",
-            orientation: NDArray | None = None,
-            depth: int = 1,
-            branch: int = 8,
-            testerLevels: int = 2,
-            numCover: int = 5000,
-            minCover: int = 5,
-            initSpheres: int = 1000,
-            minSpheres: int = 200,
-            erFact: int = 2,
-            expand: bool = True,
-            merge: bool = True,
-            burst: bool = False,
-            optimise: bool = True,
-            maxOptLevel: int = 1,
-            balExcess: float = 0.05,
-            verify: bool = True,
-            eval: bool = False,
-            num_samples: int = 500,
-            min_samples: int = 1,
-            manifold_leaves: int = 1000,
-            simplification_ratio: float = 0.2
-        ):
+        self,
+        name: str,
+        mesh: Trimesh | Path,
+        scale: NDArray | None = None,
+        position: NDArray | None = None,
+        method: str = "medial",
+        orientation: NDArray | None = None,
+        depth: int = 1,
+        branch: int = 8,
+        testerLevels: int = 2,
+        numCover: int = 5000,
+        minCover: int = 5,
+        initSpheres: int = 1000,
+        minSpheres: int = 200,
+        erFact: int = 2,
+        expand: bool = True,
+        merge: bool = True,
+        burst: bool = False,
+        optimise: bool = True,
+        maxOptLevel: int = 1,
+        balExcess: float = 0.05,
+        verify: bool = True,
+        eval: bool = False,
+        num_samples: int = 500,
+        min_samples: int = 1,
+        manifold_leaves: int = 1000,
+        simplification_ratio: float = 0.2,
+    ):
         spherization_kwargs = {
-        'depth': depth,
-        'branch': branch,
-        'method': method,
-        'testerLevels': testerLevels,
-        'numCover': numCover,
-        'minCover': minCover,
-        'initSpheres': initSpheres,
-        'minSpheres': minSpheres,
-        'erFact': erFact,
-        'expand': expand,
-        'merge': merge,
-        'burst': burst,
-        'optimise': optimise,
-        'maxOptLevel': maxOptLevel,
-        'balExcess': balExcess,
-        'verify': verify,
-        'num_samples': num_samples,
-        'min_samples': min_samples
+            "depth": depth,
+            "branch": branch,
+            "method": method,
+            "testerLevels": testerLevels,
+            "numCover": numCover,
+            "minCover": minCover,
+            "initSpheres": initSpheres,
+            "minSpheres": minSpheres,
+            "erFact": erFact,
+            "expand": expand,
+            "merge": merge,
+            "burst": burst,
+            "optimise": optimise,
+            "maxOptLevel": maxOptLevel,
+            "balExcess": balExcess,
+            "verify": verify,
+            "num_samples": num_samples,
+            "min_samples": min_samples,
         }
         if not self.db.exists(name, branch, depth):
             self.ps.spherize_mesh(
@@ -251,12 +252,14 @@ class SpherizationHelper:
                 orientation,
                 spherization_kwargs,
                 {
-                    'manifold_leaves': manifold_leaves,
-                    'ratio': simplification_ratio,
-                    },
-                )
+                    "manifold_leaves": manifold_leaves,
+                    "ratio": simplification_ratio,
+                },
+            )
 
-    def get_spherization(self, name: str, depth: int = 1, branch: int = 8, cache: bool = True) -> Spherization:
+    def get_spherization(
+        self, name: str, depth: int = 1, branch: int = 8, cache: bool = True
+    ) -> Spherization:
         if not self.db.exists(name, branch, depth):
             spherization = self.ps.get(name)
             if cache:
